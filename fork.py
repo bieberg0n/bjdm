@@ -1,223 +1,158 @@
-#import os
-#
-#print('Process (%s) start...' % os.getpid())
-#pid = os.fork()
-#if pid==0:
-#	print('I am child process (%s) and my parent is %s.' % (os.getpid(), os.getppid()))
-#else:
-#	print('I (%s) just created a child process (%s).' % (os.getpid(), pid))
-#from multiprocessing import Process
-
-
 import requests
-s = requests.session()
-url = 'http://dmimg.5054399.com/allimg/narutopic/140218d/1.jpg'
-fname = url.split('/')[-1]
+import multiprocessing
+import multiprocessing.managers
+import time
+import os
+import sys
+import glob
+import shutil
+import queue
+import subprocess
+#from socket import *
 
-r = s.head(url)
-len = int(r.headers['Content-Length'])
-sp = len//2
-print(sp,len)
+#def room(i,n):
+#	f = open('.tmp/'+fname+'.'+str(n)+'.bj','wb')
+#	f.seek(i-1)
+#	f.write(b'\x00')
+#	f.close()
 
-import multiprocessing,time
-#
-f = open(fname,'wb')
-lock = multiprocessing.Lock()
-f.seek(len-1)
-f.write(b'\x00')
-f.flush()
-
-def write(offset,f,lock,op,ed):
-#def write():
+def write(t,ra):
 	s = requests.session()
-	s.headers['Range'] = 'bytes='+op+'-'+ed
-	print(s.headers)
+	s.headers['Range'] = 'bytes='+ra
 	r = s.get(url,stream=True,headers=s.headers)
-	for i in r.iter_content(chunk_size=1024):
-		print(offset)
-		if i:
-			with lock:
-				f.seek(offset)
-				f.write(i)
-				#print(i)
-				f.flush()
-		time.sleep(1)
-		offset += 1024
-#
-a = 0
-op = '0'
-ed = str(sp)
+	t = str(t) if t >= 10 else '0'+str(t)
+	with open('.tmp/'+fname+'.'+t+'.bj','wb') as f:
+		for i in r.iter_content(chunk_size=1024*128):
+			f.write(i)
+			f.flush()
+
+print('母舰:STEINS GATE 动力引擎初始化...')
+#url,文件名,线程数
+s = requests.session()
+#url = 'http://img4.duitang.com/uploads/item/201302/11/20130211102522_nAVxM.jpeg'
+#url = 'http://softfile.3g.qq.com/msoft/179/1105/71666/qq2012_beta1_build0016_unsigned.rar'
+url = 'http://softfile.3g.qq.com/msoft/179/1105/90992/qq_2013_0_0_1718_s60v3_signed.sisx'
+#url = 'http://down.myapp.com/myapp/qqteam/Androidlite/qqlite_3.2.0.361.apk'
+#url = 'http://cdn.ovear.info:8999/upload/5c8173cd-ac7f-4405-8a1c-4b886db85412.jpg'
+#url = 'http://cdn.ovear.info:8999/upload/71d9078c-4f0f-4ef1-ab31-fa9f3549f163.jpg'
+#url = 'http://cdn.ovear.info:8999/upload/cbdadd83-9772-40d5-8100-7ccfa351d2ee.jpg'
+#url = 'http://dldir1.qq.com/qqfile/QQIntl/QQi_wireless/Android/qqi_4.6.13.6034_office.apk'
+#url = sys.argv[1]
+fname = url.split('/')[-1]
+t = 2
+
+r = s.get(url,stream=True)
+#文件长度
+le = int(r.headers['Content-Length'])
+#分块
+l = [le//t+1 if i < le%t else le//t for i in range(t)]
+print('敌军高达数目:{} 分割:{}'.format(le,l))
+l1 = []
+b = -1
+for i in range(len(l)):
+	a = b + 1
+	b = a + l[i] - 1
+	l1.append('{}-{}'.format(a,b))
+#print(l1)
+#创建临时文件夹
+if not os.path.exists('.tmp'):
+	os.mkdir('.tmp')
+else:
+	for i in glob.glob('.tmp/*.bj'):
+		os.remove(i)
+
+#进程池
 ps = []
-for i in range(multiprocessing.cpu_count()-2):
-	#p = multiprocessing.Process(target=write,args=(s,a,f,lock,op,ed))
-	p = multiprocessing.Process(target=write,args=(a,f,lock,op,ed))
-	a += sp
-	op = str(a)
-	ed = ''
-	p.start()
-	ps.append(p)
+#计时器
+nt = int(time.time())
 
+#socket通信
+#send = socket(AF_INET,SOCK_STREAM)
+#recv = socket(AF_INET,SOCK_STREAM)
+#recv.bind(('0.0.0.0',8000))
+#recv.listen(True)
+#send.connect(('192.168.233.17',8001))
+#send.send('Start'.encode())
+#conn,addr = recv.accept()
+
+#queue通信
+q = queue.Queue()
+q1 = queue.Queue()
+b = multiprocessing.managers.BaseManager
+b.register('q',callable=lambda:q)
+b.register('q1',callable=lambda:q1)
+manager = b(address=('',5000),authkey='abc'.encode('utf-8'))
+manager.start()
+manager.q().put([url,fname])
+
+#t1 = [[],[]]
+size = 0
+print('母舰:STEINS GATE进入战斗战斗状态')
+for i in range(t):
+	print(i,l1[i])
+	#room(l[i],i)
+	if i+1 <= t//2:
+		size += l[i]
+		p = multiprocessing.Process(target=write,args=(i,l1[i]))
+		p.start()
+		ps.append(p)
+	else:
+		manager.q().put([i,l1[i]])
+		#t1[0].append(i)
+		#t1[1].append(l[i])
+
+print('释放高达')
+manager.q().put(None)
+
+print('作战开始')
+while True:
+	size1 = 0
+	for i in glob.glob('.tmp/*.bj'):
+		size1 += os.path.getsize(i)
+	col = int(subprocess.getoutput('stty size').split(' ')[1])
+	#print(col)
+	col1 = col-8
+	p = int(size1/size*col1)
+	if size1 != size:
+		print('['+'='*p+'>'+' '*(col1-p-1),end='')
+		print(']{0:>4.1f}% '.format(size1/size*100),end='\r')
+	else:
+		#print('['+'='*p+' '*(col1-p),end='')
+		print('['+'='*(col1-1)+'>',end='')
+		print(']100.0%')
+		break
+	#print()
+	time.sleep(1)
+	
 for i in ps:
-	p.join()
+	i.join()
 
-f.close()
+while True:
+	if not manager.q1().get():
+		break
 
-#import urllib
-#import urllib2
-#import threading,time
-#
-# 
-#
-##线程函数
-#def threadcode(start,end):
-#req = urllib2.Request('http://guidetodatamining.com/guide/ch2/BX-Dump.zip')
-#req.headers['Range'] = 'bytes=%s-%s' % (start, end)
-#response = urllib2.urlopen(req)
-#
-##互斥临界区
-#l.acquire()
-#f.seek(start,0)
-#f.write(response.read())
-#l.release()
-#
-#
-## Get file size function 获得文件大小
-#def GetHttpFileSize(url): 
-#length = 0 
-#try: 
-#conn = urllib.urlopen(url) 
-#headers = conn.info()
-#except Exception, err: 
-#pass 
-#
-#return int (headers['Content-Length'])
-#
-##分割文件方便多线程下载 
-#def Split(size,blocks): 
-#
-#ranges = [] 
-#blocksize = size / blocks 
-#for i in xrange(blocks-1): 
-#ranges.append((i*blocksize,blocksize*i+blocksize-1))
-#
-#ranges.append(( blocksize*(blocks-1), size-1)) 
-#print ranges 
-#return ranges
-#
-#
-##建立多线程
-#url = 'http://guidetodatamining.com/guide/ch2/BX-Dump.zip'
-#thread_num = 5
-#file_len = GetHttpFileSize(url)
-#l=threading.Lock()
-#ranges=Split(file_len,thread_num)
-#f=open("multithreads.zip",'wb+')
-#childthreads=[]
-#for i in range(thread_num):
-#t = threading.Thread( target = threadcode, name="Thread-%d" % i,args=(ranges[i]))
-#t.start()
-#childthreads.append(t)
-#
-#for t in childthreads:
-#t.join()
-#
-#f.close()
-#print 'down'
-
-# -*- coding: utf-8 -*-
-# Author: ToughGuy
-# Email: wj0630@gmail.com
-# 写这玩意儿是为了初步了解下python的多线程机制
-# 平时没写注释的习惯, 这次花时间在代码里面写上注释也是希望有问题的地方请各位指正, 因为可能我自己也没弄明白.
-# 测试平台 Ubuntu 13.04 X86_64 Python 2.7.4
- 
-#import threading
-#import urllib2
-#import sys
-# 
-#max_thread = 10
-## 初始化锁
-#lock = threading.RLock()
-# 
-#class Downloader(threading.Thread):
-#	def __init__(self, url, start_size, end_size, fobj, buffer):
-#		self.url = url
-#		self.buffer = buffer
-#		self.start_size = start_size
-#		self.end_size = end_size
-#		self.fobj = fobj
-#		threading.Thread.__init__(self)
-# 
-#	def run(self):
-#		"""
-#			马甲而已
-#		"""
-#		with lock:
-#			print 'starting: %s' % self.getName()
-#		self._download()
-# 
-#	def _download(self):
-#		"""
-#			我才是搬砖的
-#		"""
-#		req = urllib2.Request(self.url)
-#		# 添加HTTP Header(RANGE)设置下载数据的范围
-#		req.headers['Range'] = 'bytes=%s-%s' % (self.start_size, self.end_size)
-#		f = urllib2.urlopen(req)
-#		# 初始化当前线程文件对象偏移量
-#		offset = self.start_size
-#		while 1:
-#			block = f.read(self.buffer)
-#			# 当前线程数据获取完毕后则退出
-#			if not block:
-#				with lock:
-#					print '%s done.' % self.getName()
-#				break
-#			# 写如数据的时候当然要锁住线程
-#			# 使用 with lock 替代传统的 lock.acquire().....lock.release()
-#			# 需要python >= 2.5
-#			with lock:
-#				sys.stdout.write('%s saveing block...' % self.getName())
-#				# 设置文件对象偏移地址
-#				self.fobj.seek(offset)
-#				# 写入获取到的数据
-#				self.fobj.write(block)
-#				offset = offset + len(block)
-#				sys.stdout.write('done.\n')
-# 
-# 
-#def main(url, thread=3, save_file='', buffer=1024):
-#	# 最大线程数量不能超过max_thread
-#	thread = thread if thread <= max_thread else max_thread
-#	# 获取文件的大小
-#	req = urllib2.urlopen(url)
-#	size = int(req.info().getheaders('Content-Length')[0])
-#	# 初始化文件对象
-#	fobj = open(save_file, 'wb')
-#	# 根据线程数量计算 每个线程负责的http Range 大小
-#	avg_size, pad_size = divmod(size, thread)
-#	plist = []
-#	for i in xrange(thread):
-#		start_size = i*avg_size
-#		end_size = start_size + avg_size - 1
-#		if i == thread - 1:
-#			# 最后一个线程加上pad_size
-#			end_size = end_size + pad_size + 1
-#		t = Downloader(url, start_size, end_size, fobj, buffer)
-#		plist.append(t)
-# 
-#	#  开始搬砖
-#	for t in plist:
-#		t.start()
-# 
-#	# 等待所有线程结束
-#	for t in plist:
-#		t.join()
-# 
-#	# 结束当然记得关闭文件对象
-#	fobj.close()
-#	print 'Download completed!'
-# 
-#if __name__ == '__main__':
-#	url = 'http://192.168.1.2:8082/downloads/10M.zip'
-#	main(url=url, thread=10, save_file='test.iso', buffer=4096)
+#print(t1)
+print('战斗完毕。花费时间:'+str(int(time.time())-nt))
+print('回收高达...')
+os.system('scp -r pi@192.168.233.17:/home/pi/py/pymultidm/.tmp/ ./')
+#for i in range(len(t1[0])):
+#	print(i)
+#exit()
+#for i in range(len(t1[0])):
+#	print(i)
+#	size = 0
+#	f = open('.tmp/'+fname+'.'+str(t1[0][i])+'.bj','wb')
+#	while True:
+#		if size+8 >= t1[1][i]:
+#			print(size)
+#			print(t1[1][i]-size)
+#			filedata = conn.recv(t1[1][i]-size)
+#			f.write(filedata)
+#			break
+#		size += 8
+#		#print(size)
+#		filedata = conn.recv(8)
+#		f.write(filedata)
+#	f.close()
+os.system('cat .tmp/*.bj > '+fname)
+shutil.rmtree('.tmp')
